@@ -1,0 +1,5 @@
+.env
+.tanstack/
+dist/
+node_modules/
+*.tgz
