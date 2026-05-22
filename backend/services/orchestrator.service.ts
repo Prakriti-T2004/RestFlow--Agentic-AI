@@ -47,6 +47,13 @@ async function generateTasks(sessionId: string, skills: string[], session: ISess
   const now = new Date();
   const totalDays = deadline ? Math.max(1, Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))) : 14;
 
+  await recordSessionActivity(sessionId, {
+    stage: 'timeline-calculation',
+    message: 'Computing pacing strategy based on deadline and current date.',
+    details: deadline ? `${totalDays} day window to target deadline.` : 'No deadline provided, using default 14 day horizon.',
+    progress: 52,
+  });
+
   // Priority by order
   skills.forEach((skill, idx) => {
     const due = new Date(now.getTime() + ((idx + 1) * totalDays * 24 * 60 * 60 * 1000) / Math.max(1, skills.length));
@@ -79,6 +86,13 @@ async function generateTasks(sessionId: string, skills: string[], session: ISess
     });
   }
 
+  await recordSessionActivity(sessionId, {
+    stage: 'task-blueprint-ready',
+    message: `Prepared ${tasks.length} scheduled task block${tasks.length === 1 ? '' : 's'} for execution.`,
+    details: tasks.slice(0, 4).map((task) => task.title).join(' | '),
+    progress: 90,
+  });
+
   return tasks;
 }
 
@@ -90,6 +104,7 @@ export async function orchestrateSession(sessionId: string) {
     await recordSessionActivity(sessionId, {
       stage: 'analysis-started',
       message: 'Agent orchestration started. Reading the resume context and targeting the requested outcome.',
+      details: `Competency: ${session.competency || 'not provided'} | Agents: ${session.agents?.length ? session.agents.join(', ') : 'default set'}`,
       progress: 12,
       status: 'running',
     });
@@ -121,6 +136,7 @@ export async function orchestrateSession(sessionId: string) {
     await recordSessionActivity(sessionId, {
       stage: 'plan-building',
       message: 'Converting the extracted signals into a prioritized task roadmap.',
+      details: `Signal count: ${skills.length} | Goal context length: ${(session.extraContext || '').length}`,
       progress: 58,
     });
 

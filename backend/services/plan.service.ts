@@ -90,6 +90,18 @@ async function callPlannerLLM(payload: {
   
   Build the plan now.`;
 
+  const requestSummary = {
+    resumeChars: payload.resumeText.length,
+    resumePreview: payload.resumeText.replace(/\s+/g, " ").trim().slice(0, 240),
+    targetRole: payload.targetRole,
+    company: payload.company || "N/A",
+    interviewDate: payload.interviewDate,
+    focusAreas: payload.focusAreas || [],
+    daysUntil,
+  };
+
+  console.log("[PlanService] Gemini request", requestSummary);
+
   const body = {
     model: "google/gemini-3-flash-preview",
     messages: [
@@ -154,7 +166,11 @@ async function callPlannerLLM(payload: {
   if (res.status === 429) throw new Error("Rate limit hit. Please wait a minute and try again.");
   if (res.status === 402)
     throw new Error("AI credits exhausted. Add funds in Settings → Workspace → Usage.");
-  if (!res.ok) throw new Error(`AI gateway error ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.log("[PlanService] Gemini error response", { status: res.status, body: errorText.slice(0, 1000) });
+    throw new Error(`AI gateway error ${res.status}: ${errorText}`);
+  }
 
   const json = await res.json();
   const call = json.choices?.[0]?.message?.tool_calls?.[0];
@@ -163,6 +179,13 @@ async function callPlannerLLM(payload: {
     typeof call.function.arguments === "string"
       ? JSON.parse(call.function.arguments)
       : call.function.arguments;
+
+  console.log("[PlanService] Gemini response", {
+    summaryPreview: typeof args.summary === "string" ? args.summary.slice(0, 240) : "",
+    taskCount: Array.isArray(args.tasks) ? args.tasks.length : 0,
+    taskTitles: Array.isArray(args.tasks) ? args.tasks.slice(0, 5).map((task: any) => task.title) : [],
+  });
+
   return args as {
     summary: string;
     tasks: Array<{

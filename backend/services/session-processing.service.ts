@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import SessionModel from '../models/Session';
 import orchestrator from './orchestrator.service';
 import { supabaseAdmin } from '../integrations/supabase/client.server';
+import { isLikelyMeaningfulSessionText, normalizeSessionText, qualityLabel } from './session-input.service';
 
 const uploadsDir = path.join(__dirname, '../uploads');
 try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch {}
@@ -48,6 +49,26 @@ async function downloadFromSupabase(fileName: string, localPath: string) {
 	throw new Error('Unsupported Supabase download payload');
 }
 
+function previewText(value: string, limit = 240) {
+	const singleLine = value.replace(/\s+/g, ' ').trim();
+	return singleLine.length > limit ? `${singleLine.slice(0, limit)}...` : singleLine;
+}
+
+async function recordProcessingTrace(sessionId: string, stage: string, message: string, details?: string, progress?: number) {
+	console.log(`[SessionProcessor:${sessionId}] ${stage} - ${message}${details ? ` | ${details}` : ''}`);
+	await SessionModel.updateOne({ _id: sessionId }, {
+		$set: typeof progress === 'number' ? { progress, currentStep: stage } : { currentStep: stage },
+		$push: {
+			activityLog: {
+				stage,
+				message,
+				details,
+				createdAt: new Date(),
+			},
+		},
+	}).exec();
+}
+
 export async function processSessionPayload(input: {
 	sessionId: string;
 	fileName?: string | null;
@@ -59,64 +80,53 @@ export async function processSessionPayload(input: {
 
 	let extractedPath: string | null = null;
 	try {
-		await SessionModel.updateOne({ _id: sessionId }, {
-			$set: {
-				status: 'running',
-				progress: 4,
-				currentStep: 'queued-for-processing',
-			},
-			$push: {
-				activityLog: {
-					stage: 'queued-for-processing',
-					message: 'The session has entered the processing pipeline and is waiting for resume analysis.',
-					createdAt: new Date(),
-				},
-			},
-		}).exec();
+		await SessionModel.updateOne({ _id: sessionId }, { $set: { status: 'running' } }).exec();
+		await recordProcessingTrace(
+			sessionId,
+			'queued-for-processing',
+			'The session has entered the processing pipeline and is waiting for resume analysis.',
+			fileName ? `Uploaded file: ${fileName}` : 'Processing inline resume/context payload',
+			4,
+		);
 
 		if (localPath) {
 			extractedPath = localPath;
 		} else if (fileName) {
 			extractedPath = path.join(uploadsDir, `${sessionId}_${Date.now()}${path.extname(fileName)}`);
-			await SessionModel.updateOne({ _id: sessionId }, {
-				$set: { progress: 10, currentStep: 'downloading-resume' },
-				$push: {
-					activityLog: {
-						stage: 'downloading-resume',
-						message: 'Fetching the uploaded resume from storage so the agent can inspect the raw file.',
-						createdAt: new Date(),
-					},
-				},
-			}).exec();
+			await recordProcessingTrace(
+				sessionId,
+				'downloading-resume',
+				'Fetching the uploaded resume from storage so the agent can inspect the raw file.',
+				`File name: ${fileName}`,
+				10,
+			);
 			await downloadFromSupabase(fileName, extractedPath);
 		}
 
 		if (extractedPath) {
-			console.log('[SessionProcessor] Extracting resume text for session', sessionId);
-			await SessionModel.updateOne({ _id: sessionId }, {
-				$set: { progress: 22, currentStep: 'extracting-text' },
-				$push: {
-					activityLog: {
-						stage: 'extracting-text',
-						message: 'Reading the document and converting it into text that the planner can reason over.',
-						createdAt: new Date(),
-					},
-				},
-			}).exec();
+			await recordProcessingTrace(
+				sessionId,
+				'extracting-text',
+				'Reading the document and converting it into text that the planner can reason over.',
+				'Running Python extractor on the uploaded file',
+				22,
+			);
 			const extracted = await runPythonExtractor(extractedPath);
+			const normalizedExtracted = normalizeSessionText(extracted);
+			console.log(`[SessionProcessor:${sessionId}] python-extracted-length=${normalizedExtracted.length}`);
+			console.log(`[SessionProcessor:${sessionId}] python-extracted-preview=${previewText(normalizedExtracted)}`);
+			if (!isLikelyMeaningfulSessionText(normalizedExtracted, { minLength: 80, minWords: 12 })) {
+				throw new Error('The uploaded resume did not contain enough usable content. Please upload a clearer resume or paste richer context.');
+			}
+			await recordProcessingTrace(
+				sessionId,
+				'resume-extracted',
+				'Resume text extracted successfully and attached to the session.',
+				`${qualityLabel(normalizedExtracted)} | preview: ${previewText(normalizedExtracted)}`,
+				34,
+			);
 			await SessionModel.updateOne({ _id: sessionId }, {
-				$set: {
-					resumeText: extracted,
-					progress: 34,
-					currentStep: 'resume-extracted',
-				},
-				$push: {
-					activityLog: {
-						stage: 'resume-extracted',
-						message: 'Resume text extracted successfully and attached to the session.',
-						createdAt: new Date(),
-					},
-				},
+				$set: { resumeText: normalizedExtracted },
 			}).exec();
 		}
 

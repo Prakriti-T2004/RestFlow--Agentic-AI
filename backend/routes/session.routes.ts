@@ -4,6 +4,7 @@ import SessionModel from '../models/Session';
 import { sessionQueue } from '../queues';
 import { processSessionPayload } from '../services/session-processing.service';
 import { generateTaskPreparation } from '../services/task-preparation.service';
+import { isLikelyMeaningfulSessionText, normalizeSessionText, qualityLabel } from '../services/session-input.service';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -24,16 +25,54 @@ router.post('/', authenticateToken, upload.single('resume'), async (req: Request
     const { extraContext, company, role, deadline, competency, agents, resumeText: resumeTextField } = req.body;
     const userId = req.userId!;
 
+    const normalizedExtraContext = normalizeSessionText(extraContext);
+    const normalizedCompany = normalizeSessionText(company);
+    const normalizedRole = normalizeSessionText(role);
+    const normalizedResumeText = normalizeSessionText(resumeTextField);
+
+    const hasUploadedResume = Boolean(req.file);
+    const hasUsefulResumeText = isLikelyMeaningfulSessionText(normalizedResumeText, { minLength: 60, minWords: 8 });
+    const hasUsefulContext = isLikelyMeaningfulSessionText(normalizedExtraContext, { minLength: 40, minWords: 6 });
+    const hasUsefulRoleOrCompany =
+      isLikelyMeaningfulSessionText(normalizedRole, { minLength: 3, minWords: 1 }) ||
+      isLikelyMeaningfulSessionText(normalizedCompany, { minLength: 3, minWords: 1 });
+
+    if (!hasUsefulContext) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a clear goal prompt with enough detail to build a reliable plan.',
+      });
+    }
+
+    if (!hasUploadedResume && !hasUsefulResumeText && !hasUsefulRoleOrCompany) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either a meaningful resume, a target role, or a company name so the plan can be grounded.',
+      });
+    }
+
+    let parsedAgents: string[] = [];
+    if (Array.isArray(agents)) {
+      parsedAgents = agents;
+    } else if (typeof agents === 'string' && agents.trim()) {
+      try {
+        const decoded = JSON.parse(agents);
+        if (Array.isArray(decoded)) parsedAgents = decoded.filter((value) => typeof value === 'string');
+      } catch {
+        parsedAgents = [];
+      }
+    }
+
     // create session placeholder
     const session = await SessionModel.create({
       userId,
-      resumeText: resumeTextField,
-      extraContext,
-      company,
-      role,
+      resumeText: normalizedResumeText,
+      extraContext: normalizedExtraContext,
+      company: normalizedCompany,
+      role: normalizedRole,
       deadline: deadline ? new Date(deadline) : undefined,
       competency,
-      agents: Array.isArray(agents) ? agents : []
+      agents: parsedAgents
     } as any);
 
     await SessionModel.updateOne(
@@ -44,11 +83,26 @@ router.post('/', authenticateToken, upload.single('resume'), async (req: Request
           activityLog: {
             stage: 'session-created',
             message: 'Session created. The agent is preparing to inspect your resume and build a plan.',
+            details: `Agents: ${parsedAgents.length ? parsedAgents.join(', ') : 'default'} | Role: ${normalizedRole || 'not provided'} | Company: ${normalizedCompany || 'not provided'} | Context: ${qualityLabel(normalizedExtraContext)}`,
             createdAt: new Date(),
           },
         },
       }
     ).exec();
+
+    if (req.file) {
+      console.log(`[SessionRoute:${session._id}] received-upload`, {
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        tempPath: req.file.path,
+      });
+    } else {
+      console.log(`[SessionRoute:${session._id}] received-inline-context`, {
+        resumeTextChars: normalizedResumeText.length,
+        extraContextChars: normalizedExtraContext.length,
+      });
+    }
 
     // If file uploaded, upload to Supabase and process either via queue or inline fallback
     if (req.file) {
