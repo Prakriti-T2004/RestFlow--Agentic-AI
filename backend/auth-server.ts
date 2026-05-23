@@ -10,6 +10,9 @@ dotenv.config();
 // Initialize database connection
 import './config/database';
 
+// Initialize multi-agent system
+import { initializeAllAgents } from './lib/agent-registry';
+
 // Import routes
 import authRoutes from './routes/auth.routes';
 import dashboardRoutes from './routes/dashboard.routes';
@@ -46,9 +49,6 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Apply rate limiting to all routes
-app.use(limiter);
-
 // Stricter rate limiting for auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -73,7 +73,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // API Routes
-app.use('/api/v1/auth', authLimiter, authRoutes);
+app.use('/api/v1/auth', limiter, authLimiter, authRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/sessions', sessionRoutes);
 
@@ -112,7 +112,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // Start server
 const PORT = process.env.AUTH_PORT || 5001;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`=================================`);
   console.log(`TaskScheduler Auth API Server`);
   console.log(`=================================`);
@@ -120,4 +120,12 @@ app.listen(PORT, () => {
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`API Base URL: http://localhost:${PORT}/api`);
   console.log(`=================================`);
+
+  // Initialize multi-agent system
+  try {
+    await initializeAllAgents();
+    console.log('[AuthServer] Multi-agent system ready');
+  } catch (error) {
+    console.error('[AuthServer] Failed to initialize agents:', error);
+  }
 });

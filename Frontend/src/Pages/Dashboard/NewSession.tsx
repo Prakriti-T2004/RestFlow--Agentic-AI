@@ -21,7 +21,7 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
-import AgentDeploymentOverlay from "../../components/AgentDeploymentOverlay";
+import AgentThinkingLoader from "../../components/agentThinkingLoader";
 
 type ActivityEntry = {
   stage: string;
@@ -37,7 +37,7 @@ type SessionSnapshot = {
   activityLog?: ActivityEntry[];
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 
 
@@ -154,7 +154,7 @@ export default function NewSession() {
 
   return (
     <div className="min-h-screen relative flex flex-col bg-[#f8fafe] text-slate-900 font-sans selection:bg-indigo-100">
-      <AgentDeploymentOverlay open={isDeploying} session={snapshot} error={deployError} elapsedMs={elapsedMs} />
+      <AgentThinkingLoader open={isDeploying} session={snapshot} error={deployError} elapsedMs={elapsedMs} />
 
       <header className="h-20 sticky top-0 z-40 flex items-center border-b border-slate-200/80 bg-white/80 px-6 shadow-sm backdrop-blur-xl lg:px-10">
         <button

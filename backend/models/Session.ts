@@ -6,6 +6,15 @@ export interface ITask {
   resources?: string[];
   dueDate?: Date;
   priority?: number;
+  category?: string;
+  estimatedMinutes?: number;
+  focusArea?: string;
+  agent?: string;
+  contributors?: string[];
+  subtopics?: string[];
+  notes?: string[];
+  commonMistakes?: string[];
+  teachingPrompts?: string[];
   prepStatus?: 'idle' | 'running' | 'completed' | 'failed';
   prepSummary?: string;
   prepSteps?: string[];
@@ -16,6 +25,54 @@ export interface IActivityLogEntry {
   message: string;
   details?: string;
   createdAt?: Date;
+}
+
+export interface ICognitiveEvent {
+  agent: string;
+  event: string;
+  stage: string;
+  message: string;
+  confidence?: number;
+  evidence?: string[];
+  timestamp: Date;
+}
+
+export interface IUserProfile {
+  skills: string[];
+  skillConfidence: Map<string, number>;
+  weaknesses: string[];
+  strengths: string[];
+  experienceLevel: string;
+  resumeQuality: number;
+}
+
+export interface ICompanyContext {
+  company: string;
+  role: string;
+  rounds: string[];
+  difficulty: number;
+  focusAreas: string[];
+}
+
+export interface IPlanningState {
+  analyzed: boolean;
+  gapAnalysis: Map<string, number>;
+  priorities: Map<string, number>;
+}
+
+export interface IExecutionState {
+  completedTasks: string[];
+  delayedTasks: string[];
+  confidenceScore: number;
+  missedDeadlines: number;
+}
+
+export interface ISharedSessionContext {
+  userProfile?: IUserProfile;
+  companyContext?: ICompanyContext;
+  planningState?: IPlanningState;
+  executionState?: IExecutionState;
+  cognitiveEvents: ICognitiveEvent[];
 }
 
 export interface ISession extends Document {
@@ -32,6 +89,7 @@ export interface ISession extends Document {
   currentStep?: string;
   activityLog: IActivityLogEntry[];
   tasks: ITask[];
+  sharedContext?: ISharedSessionContext;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -42,6 +100,15 @@ const TaskSchema = new Schema<ITask>({
   resources: { type: [String], default: [] },
   dueDate: { type: Date },
   priority: { type: Number, default: 0 },
+  category: { type: String },
+  estimatedMinutes: { type: Number },
+  focusArea: { type: String },
+  agent: { type: String },
+  contributors: { type: [String], default: [] },
+  subtopics: { type: [String], default: [] },
+  notes: { type: [String], default: [] },
+  commonMistakes: { type: [String], default: [] },
+  teachingPrompts: { type: [String], default: [] },
 });
 
 const ActivityLogSchema = new Schema<IActivityLogEntry>({
@@ -49,6 +116,46 @@ const ActivityLogSchema = new Schema<IActivityLogEntry>({
   message: { type: String, required: true },
   details: { type: String },
   createdAt: { type: Date, default: Date.now },
+}, { _id: false });
+
+const CognitiveEventSchema = new Schema<ICognitiveEvent>({
+  agent: { type: String, required: true },
+  event: { type: String, required: true },
+  stage: { type: String, required: true },
+  message: { type: String, required: true },
+  confidence: { type: Number },
+  evidence: { type: [String], default: [] },
+  timestamp: { type: Date, default: Date.now },
+}, { _id: false });
+
+const SharedSessionContextSchema = new Schema<ISharedSessionContext>({
+  userProfile: {
+    skills: { type: [String], default: [] },
+    skillConfidence: { type: Map, of: Number, default: new Map() },
+    weaknesses: { type: [String], default: [] },
+    strengths: { type: [String], default: [] },
+    experienceLevel: { type: String },
+    resumeQuality: { type: Number },
+  },
+  companyContext: {
+    company: { type: String },
+    role: { type: String },
+    rounds: { type: [String], default: [] },
+    difficulty: { type: Number },
+    focusAreas: { type: [String], default: [] },
+  },
+  planningState: {
+    analyzed: { type: Boolean, default: false },
+    gapAnalysis: { type: Map, of: Number, default: new Map() },
+    priorities: { type: Map, of: Number, default: new Map() },
+  },
+  executionState: {
+    completedTasks: { type: [String], default: [] },
+    delayedTasks: { type: [String], default: [] },
+    confidenceScore: { type: Number, default: 0 },
+    missedDeadlines: { type: Number, default: 0 },
+  },
+  cognitiveEvents: { type: [CognitiveEventSchema], default: [] },
 }, { _id: false });
 
 const SessionSchema = new Schema<ISession>(
@@ -66,6 +173,7 @@ const SessionSchema = new Schema<ISession>(
     currentStep: { type: String, default: 'queued' },
     activityLog: { type: [ActivityLogSchema], default: [] },
     tasks: { type: [TaskSchema], default: [] },
+    sharedContext: { type: SharedSessionContextSchema },
   },
   { timestamps: true }
 );

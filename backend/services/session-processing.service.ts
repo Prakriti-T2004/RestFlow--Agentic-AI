@@ -54,6 +54,10 @@ function previewText(value: string, limit = 240) {
 	return singleLine.length > limit ? `${singleLine.slice(0, limit)}...` : singleLine;
 }
 
+function logSessionPayload(sessionId: string, label: string, payload: Record<string, unknown>) {
+	console.log(`[SessionProcessor:${sessionId}] ${label}`, JSON.stringify(payload, null, 2));
+}
+
 async function recordProcessingTrace(sessionId: string, stage: string, message: string, details?: string, progress?: number) {
 	console.log(`[SessionProcessor:${sessionId}] ${stage} - ${message}${details ? ` | ${details}` : ''}`);
 	await SessionModel.updateOne({ _id: sessionId }, {
@@ -77,6 +81,17 @@ export async function processSessionPayload(input: {
 	const { sessionId, fileName, localPath } = input;
 	const session = await SessionModel.findById(sessionId).exec();
 	if (!session) throw new Error('Session not found');
+
+	logSessionPayload(sessionId, 'received-session-input', {
+		fileName: fileName || null,
+		localPath: localPath || null,
+		company: session.company || null,
+		role: session.role || null,
+		competency: session.competency || null,
+		agents: session.agents || [],
+		extraContextPreview: previewText(session.extraContext || '', 180),
+		resumeTextPreview: previewText(session.resumeText || '', 180),
+	});
 
 	let extractedPath: string | null = null;
 	try {
@@ -128,10 +143,33 @@ export async function processSessionPayload(input: {
 			await SessionModel.updateOne({ _id: sessionId }, {
 				$set: { resumeText: normalizedExtracted },
 			}).exec();
+			logSessionPayload(sessionId, 'resume-extraction-result', {
+				length: normalizedExtracted.length,
+				preview: previewText(normalizedExtracted),
+			});
 		}
 
+		logSessionPayload(sessionId, 'starting-orchestration', {
+			resumeTextChars: (session.resumeText || '').length,
+			extraContextChars: (session.extraContext || '').length,
+			company: session.company || null,
+			role: session.role || null,
+			agents: session.agents || [],
+		});
 		await orchestrator.orchestrateSession(sessionId);
 		console.log('[SessionProcessor] Orchestration complete for', sessionId);
+		const completedSession = await SessionModel.findById(sessionId).lean().exec();
+		logSessionPayload(sessionId, 'orchestration-complete', {
+			status: completedSession?.status || null,
+			progress: completedSession?.progress ?? null,
+			currentStep: completedSession?.currentStep || null,
+			tasks: Array.isArray(completedSession?.tasks) ? (completedSession?.tasks as Array<Record<string, unknown>>).slice(0, 5).map((task) => ({
+				title: task.title,
+				category: task.category,
+				agent: task.agent,
+				estimatedMinutes: task.estimatedMinutes,
+			})) : [],
+		});
 		return { success: true };
 	} catch (err) {
 		await SessionModel.updateOne({ _id: sessionId }, {

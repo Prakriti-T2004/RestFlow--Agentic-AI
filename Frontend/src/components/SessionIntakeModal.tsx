@@ -1,6 +1,24 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, UploadCloud, FileText, Sparkles, Loader2, Target, Calendar, Activity } from "lucide-react";
+import AgentThinkingLoader from "./agentThinkingLoader";
+
+type ActivityEntry = {
+  stage: string;
+  message: string;
+  details?: string;
+  createdAt?: string;
+};
+
+type SessionSnapshot = {
+  status: "pending" | "running" | "completed" | "failed";
+  progress?: number;
+  currentStep?: string;
+  resumeText?: string;
+  activityLog?: ActivityEntry[];
+};
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 
 type Props = {
   open: boolean;
@@ -18,20 +36,69 @@ export default function SessionIntakeModal({ open, onClose }: Props) {
   const [competency, setCompetency] = useState("intermediate");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Curator Agent", "Schedule Agent"]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [resumeFileName, setResumeFileName] = useState<string | null>(null);
+  const resumeInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isDeploying || !sessionId) return;
+
+    let cancelled = false;
+    const token = localStorage.getItem("taskSchedulerToken");
+
+    const poll = async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}`, {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || "Unable to fetch session status");
+        if (cancelled) return;
+
+        setSnapshot(data.data as SessionSnapshot);
+
+        if (data.data?.status === "completed") {
+          window.setTimeout(() => {
+            onClose();
+            navigate(`/dashboard/tasks/${sessionId}`);
+          }, 900);
+        }
+      } catch {
+        // Keep the loader visible and continue polling so the user can still follow the live flow.
+      }
+    };
+
+    poll();
+    const timer = window.setInterval(poll, 1300);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isDeploying, sessionId, navigate, onClose]);
 
   if (!open) return null;
 
   const handleDeploy = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsDeploying(true);
+    setDeployError(null);
+    setSnapshot(null);
+    setStartedAt(Date.now());
 
     try {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       const token = localStorage.getItem("taskSchedulerToken");
-      const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 
       const form = new FormData();
       if (activeTab === "upload") {
-        const input = document.getElementById("modal-resume-file") as HTMLInputElement | null;
+        const input = resumeInputRef.current;
         if (input?.files?.length) form.append("resume", input.files[0]);
       } else {
         form.append("resumeText", resumeText);
@@ -55,12 +122,11 @@ export default function SessionIntakeModal({ open, onClose }: Props) {
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.message || "Failed to create session");
 
-      onClose();
-      navigate(`/dashboard/session/${data.data.id}`);
+      setSessionId(data.data.id);
     } catch (err: any) {
-      alert(err?.message || "Unable to create session");
-    } finally {
+      setDeployError(err?.message || "Unable to deploy session");
       setIsDeploying(false);
+      setStartedAt(null);
     }
   };
 
@@ -68,8 +134,24 @@ export default function SessionIntakeModal({ open, onClose }: Props) {
     setSelectedAgents((prev) => (prev.includes(agent) ? prev.filter((a) => a !== agent) : [...prev, agent]));
   };
 
+  const handleRetryDeploy = () => {
+    setDeployError(null);
+    setIsDeploying(false);
+    setSessionId(null);
+    setSnapshot(null);
+    setStartedAt(null);
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+      <AgentThinkingLoader
+        open={isDeploying}
+        session={snapshot}
+        error={deployError}
+        elapsedMs={startedAt ? Date.now() - startedAt : 0}
+        onRetry={handleRetryDeploy}
+      />
+
       <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
         <button
           type="button"
@@ -111,10 +193,47 @@ export default function SessionIntakeModal({ open, onClose }: Props) {
             </div>
 
             {activeTab === "upload" ? (
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-sm font-semibold text-slate-600 hover:border-indigo-400">
-                <UploadCloud className="h-4 w-4" /> Choose PDF
-                <input id="modal-resume-file" type="file" accept="application/pdf" className="hidden" />
-              </label>
+              <div className="space-y-3">
+                {resumeFileName ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-sm">
+                    <div className="min-w-0 flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-600">
+                        <FileText className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-700">Selected File</p>
+                        <p className="truncate font-semibold">{resumeFileName}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResumeFileName(null);
+                        if (resumeInputRef.current) resumeInputRef.current.value = "";
+                      }}
+                      className="rounded-full p-1.5 text-emerald-700 transition-colors hover:bg-emerald-100"
+                      aria-label="Clear selected file"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
+
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-sm font-semibold text-slate-600 hover:border-indigo-400">
+                  <UploadCloud className="h-4 w-4" /> Choose PDF
+                  <input
+                    ref={resumeInputRef}
+                    id="modal-resume-file"
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0] ?? null;
+                      setResumeFileName(file ? file.name : null);
+                    }}
+                  />
+                </label>
+              </div>
             ) : (
               <textarea
                 value={resumeText}

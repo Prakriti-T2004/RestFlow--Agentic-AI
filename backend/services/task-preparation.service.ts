@@ -2,11 +2,15 @@ import SessionModel, { ITask } from '../models/Session';
 
 function buildPreparationSteps(task: ITask, context: string): string[] {
   const title = task.title.toLowerCase();
+  const subtopics = task.subtopics?.slice(0, 5) || [];
+  const notes = task.notes?.slice(0, 3) || [];
+  const prompts = task.teachingPrompts?.slice(0, 3) || [];
   const steps = [
     `Review the task goal: ${task.title}`,
     `Extract the high-signal concepts from ${title.includes('mock') ? 'interview practice' : 'the task topic'}.`,
-    `Break the topic into foundations, practice, and review checkpoints.`,
-    `Create a short execution checklist and evidence-based review notes.`,
+    subtopics.length > 0 ? `Cover the topic tree: ${subtopics.join(', ')}.` : 'Break the topic into foundations, practice, and review checkpoints.',
+    notes.length > 0 ? `Apply the coaching notes: ${notes.join(' ')}.` : 'Create a short execution checklist and evidence-based review notes.',
+    prompts.length > 0 ? `Use live-teaching prompts to self-test: ${prompts.join(' | ')}.` : 'Use the support prompts to self-check weak spots before moving on.',
   ];
 
   if (context) {

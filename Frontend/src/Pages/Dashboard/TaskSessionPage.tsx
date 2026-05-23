@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
-import { CheckCircle2, Circle, Loader2, Sparkles, Target, ArrowLeft, BookOpen, BrainCircuit } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, Sparkles, Target, ArrowLeft, BookOpen, BrainCircuit, Clock3, Layers3, BadgeCheck, ChevronRight, FileText } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +12,15 @@ type Task = {
   resources?: string[];
   dueDate?: string;
   priority?: number;
+  category?: string;
+  estimatedMinutes?: number;
+  focusArea?: string;
+  agent?: string;
+  contributors?: string[];
+  subtopics?: string[];
+  notes?: string[];
+  commonMistakes?: string[];
+  teachingPrompts?: string[];
   prepStatus?: "idle" | "running" | "completed" | "failed";
   prepSummary?: string;
   prepSteps?: string[];
@@ -20,6 +29,8 @@ type Task = {
 type Session = {
   status: "pending" | "running" | "completed" | "failed";
   progress?: number;
+  currentStep?: string;
+  activityLog?: { stage: string; message: string; details?: string; createdAt?: string }[];
   tasks?: Task[];
 };
 
@@ -68,6 +79,11 @@ export default function TaskSessionPage() {
 
   const tasks = session?.tasks ?? [];
   const progress = session?.progress ?? 100;
+  const totalMinutes = tasks.reduce((sum, task) => sum + (task.estimatedMinutes ?? 0), 0);
+  const agentOneNote = session?.activityLog?.find((entry) => entry.stage === "agent-1-planner") ?? session?.activityLog?.find((entry) => entry.stage === "resume-signals");
+  const agentTwoNote = session?.activityLog?.find((entry) => entry.stage === "agent-2-topic-expansion") ?? session?.activityLog?.find((entry) => entry.stage === "task-blueprint-ready");
+  const agentThreeNote = session?.activityLog?.find((entry) => entry.stage === "agent-3-resource-curation");
+  const agentFourNote = session?.activityLog?.find((entry) => entry.stage === "agent-4-live-support");
 
   const prepareTask = async (taskIndex: number) => {
     if (!id) return;
@@ -140,11 +156,11 @@ export default function TaskSessionPage() {
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">
                   <CheckCircle2 className="h-4 w-4" />
-                  Plan ready
+                  Agent roadmap ready
                 </div>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900">Task roadmap</h2>
+                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900">Your interview study roadmap</h2>
                 <p className="mt-2 max-w-2xl text-sm font-medium text-slate-500">
-                  The agent has completed the plan. Use the full preparation action on any task to generate a deeper brief.
+                  Planner, depth, resource, and support agents work together to turn your resume, role, company, deadline, and goal into a precise study plan.
                 </p>
               </div>
               <div className="w-full md:w-72">
@@ -160,7 +176,38 @@ export default function TaskSessionPage() {
           <div className="grid gap-4 lg:grid-cols-3">
             <Metric label="Tasks" value={String(tasks.length)} />
             <Metric label="Prepared" value={String(tasks.filter((task) => task.prepStatus === "completed").length)} />
-            <Metric label="Ready for study" value={String(tasks.filter((task) => task.prepStatus === "completed").length === tasks.length && tasks.length > 0 ? "Yes" : "In progress")} />
+            <Metric label="Total focus time" value={`${Math.round(totalMinutes / 60)}h ${totalMinutes % 60}m`} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+            <AgentSummaryCard
+              title="Planner Agent"
+              icon={<BadgeCheck className="h-4 w-4" />}
+              tone="indigo"
+              message={agentOneNote?.message || "This agent ranks the strongest topics from your resume, company, role, and goal."}
+              details={agentOneNote?.details || "It produces the priority order and rough time budget for the roadmap."}
+            />
+            <AgentSummaryCard
+              title="Depth Agent"
+              icon={<Layers3 className="h-4 w-4" />}
+              tone="emerald"
+              message={agentTwoNote?.message || "This agent expands each task into subtopics, notes, and learning checkpoints."}
+              details={agentTwoNote?.details || "Each topic gets a deeper map so the user knows exactly what to cover."}
+            />
+            <AgentSummaryCard
+              title="Resource Agent"
+              icon={<FileText className="h-4 w-4" />}
+              tone="indigo"
+              message={agentThreeNote?.message || "This agent attaches useful references, examples, and study material to each task."}
+              details={agentThreeNote?.details || "It curates resources that match the topic depth and the target role."}
+            />
+            <AgentSummaryCard
+              title="Support Agent"
+              icon={<Sparkles className="h-4 w-4" />}
+              tone="emerald"
+              message={agentFourNote?.message || "This agent creates live teaching prompts for when the user gets stuck."}
+              details={agentFourNote?.details || "It keeps the workflow interactive with quick questions and guidance cues."}
+            />
           </div>
 
           <div className="grid gap-4">
@@ -179,7 +226,13 @@ export default function TaskSessionPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-xl font-extrabold text-slate-900">{task.title}</h3>
                       {typeof task.priority === "number" && <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-indigo-700">P{task.priority}</span>}
+                      {task.category && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-600">{task.category}</span>}
                       <StatusPill status={task.prepStatus ?? "idle"} />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-slate-400">
+                      {task.focusArea ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-700">{task.focusArea}</span> : null}
+                      {typeof task.estimatedMinutes === "number" ? <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-cyan-700">{task.estimatedMinutes} min</span> : null}
+                      {task.agent ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">{task.agent}</span> : null}
                     </div>
                     {task.description && <p className="max-w-3xl text-sm leading-6 text-slate-600">{task.description}</p>}
                     {task.resources?.length ? <p className="text-xs font-medium uppercase tracking-[0.22em] text-slate-400">{task.resources.length} starter resources attached</p> : null}
@@ -197,7 +250,7 @@ export default function TaskSessionPage() {
                       </>
                     ) : (
                       <>
-                        <Sparkles className="mr-2 h-4 w-4" /> Create full preparation
+                        <Sparkles className="mr-2 h-4 w-4" /> Expand this topic
                       </>
                     )}
                   </Button>
@@ -221,11 +274,80 @@ export default function TaskSessionPage() {
                     ) : null}
                   </div>
                 )}
+
+                {task.subtopics?.length ? (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900">
+                      <Layers3 className="h-4 w-4" /> Deep dive topics
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {task.subtopics.map((subtopic) => (
+                        <span key={subtopic} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                          {subtopic}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {task.notes?.length || task.commonMistakes?.length || task.teachingPrompts?.length ? (
+                  <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                    {task.notes?.length ? (
+                      <SupportCard title="Coach notes" tone="indigo" items={task.notes} />
+                    ) : null}
+                    {task.commonMistakes?.length ? (
+                      <SupportCard title="Common mistakes" tone="rose" items={task.commonMistakes} />
+                    ) : null}
+                    {task.teachingPrompts?.length ? (
+                      <SupportCard title="Live teaching prompts" tone="emerald" items={task.teachingPrompts} />
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {task.contributors?.length ? (
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-slate-400">
+                    <span>Contributors</span>
+                    {task.contributors.map((contributor) => (
+                      <span key={contributor} className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                        {contributor}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </motion.div>
             ))}
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+function AgentSummaryCard({
+  title,
+  icon,
+  tone,
+  message,
+  details,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  tone: "indigo" | "emerald";
+  message: string;
+  details: string;
+}) {
+  const toneClasses = tone === "indigo"
+    ? "border-indigo-200 bg-indigo-50/70 text-indigo-900"
+    : "border-emerald-200 bg-emerald-50/70 text-emerald-900";
+
+  return (
+    <div className={`rounded-3xl border p-5 shadow-sm ${toneClasses}`}>
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.24em]">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/80">{icon}</span>
+        {title}
+      </div>
+      <p className="mt-3 text-sm font-semibold leading-6">{message}</p>
+      <p className="mt-2 text-sm leading-6 opacity-80">{details}</p>
     </div>
   );
 }
@@ -248,4 +370,25 @@ function StatusPill({ status }: { status: "idle" | "running" | "completed" | "fa
   }[status];
 
   return <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${classes}`}>{status}</span>;
+}
+
+function SupportCard({ title, tone, items }: { title: string; tone: "indigo" | "emerald" | "rose"; items: string[] }) {
+  const toneClasses = {
+    indigo: "border-indigo-100 bg-indigo-50/60 text-indigo-950",
+    emerald: "border-emerald-100 bg-emerald-50/60 text-emerald-950",
+    rose: "border-rose-100 bg-rose-50/60 text-rose-950",
+  }[tone];
+
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClasses}`}>
+      <div className="mb-3 text-sm font-bold uppercase tracking-[0.22em]">{title}</div>
+      <ul className="space-y-2 text-sm leading-6 opacity-90">
+        {items.slice(0, 5).map((item) => (
+          <li key={item} className="rounded-xl bg-white/80 px-3 py-2">
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

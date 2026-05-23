@@ -68,7 +68,8 @@ async function callPlannerLLM(payload: {
     Math.ceil((new Date(payload.interviewDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
   );
 
-  const system = `You are Synapse, an elite interview prep coach. Build a prioritized, time-boxed study plan tailored to the candidate's resume and target role.
+  const system = `You are Synapse, an elite interview prep coach. Build a prioritized, time-boxed study plan  along with that for each topic in depth topic wise plan like if 
+  you the user has mentioned java than all the important topic he must master and learn for the specific role and company as as well as company wise resources tailored to the candidate's resume and target role.
   
   Rules:
   - Priority is an integer 1 (highest impact, do first) to 5 (lowest).
